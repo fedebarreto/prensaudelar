@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Red Etiquetas + Servicios · UDELAR Prensa</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+  :root {
+    --bg: #07070d;
+    --surface: #101018;
+    --surface2: #17171f;
+    --border: #1e1e2e;
+    --text: #edeaf8;
+    --muted: #4e4e70;
+    --pos: #4ade80;
+    --neu: #94a3b8;
+    --neg: #f87171;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(ellipse 50% 40% at 25% 35%, rgba(99,102,241,0.055) 0%, transparent 65%),
+      radial-gradient(ellipse 45% 35% at 80% 70%, rgba(20,184,166,0.04) 0%, transparent 65%);
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    position: relative; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(7,7,13,0.96);
+    backdrop-filter: blur(12px);
+    flex-shrink: 0; flex-wrap: wrap; gap: 10px;
+  }
+
+  .topbar-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+  h1 { font-family: 'DM Serif Display', serif; font-size: 16px; white-space: nowrap; }
+  h1 em { font-style: italic; color: #818cf8; }
+
+  .pill {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    letter-spacing: 0.09em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 3px;
+  }
+  .pill-a { background: rgba(129,140,248,0.12); border: 1px solid rgba(129,140,248,0.3); color: #818cf8; }
+  .pill-b { background: rgba(20,184,166,0.1);  border: 1px solid rgba(20,184,166,0.3);  color: #14b8a6; }
+
+  .topbar-right { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+  /* search */
+  .search-wrap { position: relative; }
+  #search {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text); font-family: 'DM Mono', monospace; font-size: 11px;
+    padding: 5px 10px 5px 26px; border-radius: 5px; outline: none; width: 150px;
+    transition: border-color 0.2s;
+  }
+  #search:focus { border-color: #818cf8; }
+  #search::placeholder { color: var(--muted); }
+  .si { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 12px; pointer-events: none; }
+
+  /* legend blocks */
+  .legend-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .legend-sep { width: 1px; height: 22px; background: var(--border); }
+
+  .leg-item {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 10px; color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    cursor: pointer; padding: 3px 6px; border-radius: 3px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .leg-item:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+  .leg-item.off { opacity: 0.25; }
+  .leg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .leg-sq  { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+
+  .hint { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; white-space: nowrap; }
+
+  /* ── GRAPH ── */
+  #gc { flex: 1; position: relative; overflow: hidden; }
+  svg { width: 100%; height: 100%; cursor: grab; }
+  svg:active { cursor: grabbing; }
+
+  .link { stroke-linecap: round; }
+
+  /* node shape: tag = circle, service = rounded-rect via circle with dashed stroke */
+  .node-glow   { transition: r 0.25s, opacity 0.2s; }
+  .node-body   { transition: fill-opacity 0.2s, stroke-opacity 0.2s; }
+  .node-ring-pos { }
+  .node-ring-neg { }
+  .node-ring-neu { }
+
+  .node-label {
+    font-family: 'DM Sans', sans-serif; font-weight: 600;
+    pointer-events: none;
+    text-shadow: 0 0 8px rgba(7,7,13,1), 0 0 4px rgba(7,7,13,1), 1px 1px 0 rgba(7,7,13,.9), -1px -1px 0 rgba(7,7,13,.9);
+  }
+
+  /* ── TOOLTIP ── */
+  #tt {
+    position: absolute;
+    background: rgba(14,14,22,0.97);
+    border: 1px solid rgba(129,140,248,0.3);
+    border-radius: 9px; padding: 13px 16px;
+    font-size: 12px; pointer-events: none; opacity: 0;
+    transition: opacity 0.15s; z-index: 50; max-width: 260px;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.7);
+  }
+  #tt.on { opacity: 1; }
+  #tt-title { font-family: 'DM Serif Display', serif; font-size: 14px; color: #818cf8; margin-bottom: 8px; }
+  .tt-row { color: var(--muted); font-size: 11px; line-height: 1.7; }
+  .tt-row b { color: var(--text); }
+  .tone-bar-wrap { display: flex; align-items: center; gap: 6px; margin: 8px 0 4px; }
+  .tone-bar { flex: 1; height: 7px; border-radius: 3px; overflow: hidden; display: flex; }
+  .tb-pos { background: var(--pos); }
+  .tb-neu { background: var(--neu); opacity: 0.5; }
+  .tb-neg { background: var(--neg); }
+  .tone-pcts { display: flex; justify-content: space-between; font-size: 9px; font-family: 'DM Mono', monospace; }
+  .tp-pos { color: var(--pos); }
+  .tp-neu { color: var(--neu); }
+  .tp-neg { color: var(--neg); }
+  .tt-div { height: 1px; background: var(--border); margin: 8px 0; }
+  .nb-wrap { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); }
+  .nb-chip {
+    display: inline-block; background: rgba(255,255,255,0.06); border-radius: 3px;
+    padding: 2px 5px; margin: 2px 2px 0 0; color: var(--text); font-size: 9px;
+  }
+
+  /* ── CONTROLS ── */
+  .ctrls {
+    position: absolute; bottom: 14px; right: 14px; z-index: 20;
+    display: flex; flex-direction: column; gap: 5px; align-items: flex-end;
+  }
+  .cbtn {
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--muted); font-family: 'DM Mono', monospace;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em;
+    padding: 5px 11px; border-radius: 5px; cursor: pointer; white-space: nowrap;
+    transition: all 0.2s;
+  }
+  .cbtn:hover { border-color: #818cf8; color: #818cf8; }
+
+  /* ── STATS BAR ── */
+  .sbar {
+    position: relative; z-index: 10; display: flex;
+    border-top: 1px solid var(--border);
+    background: rgba(7,7,13,0.96); flex-shrink: 0;
+  }
+  .sv { flex: 1; padding: 8px 0; text-align: center; border-right: 1px solid var(--border); }
+  .sv:last-child { border-right: none; }
+  .sv-n { display: block; font-family: 'DM Serif Display', serif; font-size: 17px; color: #818cf8; line-height: 1; }
+  .sv-l { font-size: 9px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); }
+
+  /* tone arc sizing helpers */
+  .type-tag     {}
+  .type-service {}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <h1>Red de <em>Etiquetas + Servicios</em> · UDELAR Prensa</h1>
+    <span class="pill pill-a">4.454 noticias</span>
+    <span class="pill pill-b">50 nodos · 313 vínculos</span>
+  </div>
+  <div class="topbar-right">
+    <div class="search-wrap">
+      <span class="si">⌕</span>
+      <input id="search" type="text" placeholder="Buscar…" oninput="onSearch(this.value)">
+    </div>
+    <div class="legend-group" id="lg-type">
+      <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace">TIPO</span>
+      <div class="leg-item" data-filter="tag">
+        <svg width="10" height="10"><circle cx="5" cy="5" r="4" fill="none" stroke="#818cf8" stroke-width="1.5"/></svg>
+        Etiqueta
+      </div>
+      <div class="leg-item" data-filter="service">
+        <svg width="10" height="10"><rect x="1" y="1" width="8" height="8" rx="2" fill="none" stroke="#14b8a6" stroke-width="1.5"/></svg>
+        Servicio
+      </div>
+    </div>
+    <div class="legend-sep"></div>
+    <div class="legend-group">
+      <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace">TONO</span>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--pos)"></div>Positivo</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--neu);opacity:.6"></div>Neutro</div>
+      <div class="leg-item"><div class="leg-dot" style="background:var(--neg)"></div>Negativo</div>
+      <span style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace">— anillo exterior</span>
+    </div>
+    <span class="hint">Drag · Zoom · Click</span>
+  </div>
+</div>
+
+<div id="gc">
+  <svg id="svg"></svg>
+  <div id="tt">
+    <div id="tt-title"></div>
+    <div class="tt-row" id="tt-type"></div>
+    <div class="tt-row" id="tt-count"></div>
+    <div class="tone-bar-wrap">
+      <div class="tone-bar" id="tt-bar"></div>
+    </div>
+    <div class="tone-pcts">
+      <span class="tp-pos" id="tp-pos"></span>
+      <span class="tp-neu" id="tp-neu"></span>
+      <span class="tp-neg" id="tp-neg"></span>
+    </div>
+    <div class="tt-div"></div>
+    <div class="nb-wrap" id="tt-nb"></div>
+  </div>
+  <div class="ctrls">
+    <button class="cbtn" onclick="resetZoom()">↺ Centrar</button>
+    <button class="cbtn" id="fbtn" onclick="toggleFreeze()">❄ Congelar</button>
+  </div>
+</div>
+
+<div class="sbar">
+  <div class="sv"><span class="sv-n">4.454</span><span class="sv-l">Noticias</span></div>
+  <div class="sv"><span class="sv-n">30</span><span class="sv-l">Etiquetas</span></div>
+  <div class="sv"><span class="sv-n">20</span><span class="sv-l">Servicios</span></div>
+  <div class="sv"><span class="sv-n">313</span><span class="sv-l">Conexiones</span></div>
+  <div class="sv"><span class="sv-n">158</span><span class="sv-l">Vínculo más fuerte</span></div>
+</div>
+
+<script>
+// ─── DATA ─────────────────────────────────────────────────────────────────
+const rawNodes = [{"id":"Presupuesto","count":437,"type":"tag","pos":333,"neu":91,"neg":13},{"id":"Uruguay SUB200","count":341,"type":"tag","pos":308,"neu":33,"neg":0},{"id":"Investigación","count":318,"type":"tag","pos":296,"neu":18,"neg":4},{"id":"Salud","count":286,"type":"tag","pos":234,"neu":34,"neg":18},{"id":"Rodrigo Arim","count":236,"type":"tag","pos":156,"neu":44,"neg":36},{"id":"Rendición de Cuentas","count":235,"type":"tag","pos":166,"neu":55,"neg":14},{"id":"Héctor Cancela","count":186,"type":"tag","pos":174,"neu":10,"neg":2},{"id":"Obras","count":183,"type":"tag","pos":132,"neu":16,"neg":35},{"id":"Ambiente","count":160,"type":"tag","pos":135,"neu":20,"neg":5},{"id":"Israel","count":152,"type":"tag","pos":17,"neu":50,"neg":85},{"id":"Consultorio Jurídico","count":139,"type":"tag","pos":45,"neu":67,"neg":27},{"id":"Ciencia","count":134,"type":"tag","pos":119,"neu":15,"neg":0},{"id":"Agua","count":126,"type":"tag","pos":87,"neu":39,"neg":0},{"id":"MEC","count":125,"type":"tag","pos":46,"neu":43,"neg":36},{"id":"Cogobierno","count":117,"type":"tag","pos":97,"neu":11,"neg":9},{"id":"Ingresos","count":111,"type":"tag","pos":96,"neu":4,"neg":11},{"id":"Opinión","count":109,"type":"tag","pos":54,"neu":22,"neg":33},{"id":"Enseñanza","count":103,"type":"tag","pos":59,"neu":28,"neg":16},{"id":"FILUNI","count":102,"type":"tag","pos":102,"neu":0,"neg":0},{"id":"Tecnologías","count":99,"type":"tag","pos":68,"neu":16,"neg":15},{"id":"Colonia","count":98,"type":"tag","pos":85,"neu":11,"neg":2},{"id":"Amenaza","count":96,"type":"tag","pos":13,"neu":41,"neg":42},{"id":"Elecciones Universitarias","count":94,"type":"tag","pos":65,"neu":19,"neg":10},{"id":"Álvaro Villar","count":92,"type":"tag","pos":63,"neu":17,"neg":12},{"id":"Salud mental","count":89,"type":"tag","pos":56,"neu":22,"neg":11},{"id":"Convivencia","count":83,"type":"tag","pos":21,"neu":32,"neg":30},{"id":"Cultura","count":81,"type":"tag","pos":77,"neu":1,"neg":3},{"id":"Parlamento","count":78,"type":"tag","pos":60,"neu":12,"neg":6},{"id":"Trabajo","count":77,"type":"tag","pos":31,"neu":16,"neg":30},{"id":"Intendencia de Montevideo","count":76,"type":"tag","pos":62,"neu":14,"neg":0},{"id":"Rectorado","count":404,"type":"service","pos":339,"neu":50,"neg":15},{"id":"HC · Hospital de Clínicas","count":274,"type":"service","pos":188,"neu":44,"neg":42},{"id":"FCIEN · Ciencias","count":257,"type":"service","pos":223,"neu":24,"neg":10},{"id":"FDER · Derecho","count":219,"type":"service","pos":86,"neu":95,"neg":38},{"id":"FMED · Medicina","count":214,"type":"service","pos":128,"neu":47,"neg":39},{"id":"CENUR Litoral Norte","count":191,"type":"service","pos":166,"neu":9,"neg":16},{"id":"FHCE · Humanidades","count":143,"type":"service","pos":90,"neu":16,"neg":37},{"id":"CENUR Litoral Norte · Salto","count":139,"type":"service","pos":127,"neu":8,"neg":4},{"id":"FCS · Facultad de Ciencias Sociales","count":135,"type":"service","pos":102,"neu":24,"neg":9},{"id":"FEUU","count":127,"type":"service","pos":87,"neu":23,"neg":17},{"id":"PSICO · Psicología","count":120,"type":"service","pos":44,"neu":36,"neg":40},{"id":"FING · Ingeniería","count":115,"type":"service","pos":95,"neu":16,"neg":4},{"id":"FQ · Química","count":113,"type":"service","pos":92,"neu":16,"neg":5},{"id":"CENUR Este · CURE","count":113,"type":"service","pos":102,"neu":11,"neg":0},{"id":"FCEA · Ciencias Económicas y Administración","count":107,"type":"service","pos":79,"neu":19,"neg":9},{"id":"ADUR","count":107,"type":"service","pos":64,"neu":36,"neg":7},{"id":"CDC · Consejo Directivo Central","count":100,"type":"service","pos":44,"neu":33,"neg":23},{"id":"Región Suroeste","count":99,"type":"service","pos":95,"neu":3,"neg":1},{"id":"FIC · Información y Comunicación","count":85,"type":"service","pos":59,"neu":12,"neg":14},{"id":"FADU · Arquitectura, Diseño y Urbanismo","count":76,"type":"service","pos":56,"neu":6,"neg":14}];
+
+const rawEdges = [{"source":"Héctor Cancela","target":"Rectorado","weight":158},{"source":"Consultorio Jurídico","target":"FDER · Derecho","weight":138},{"source":"Presupuesto","target":"Rectorado","weight":120},{"source":"CENUR Litoral Norte","target":"CENUR Litoral Norte · Salto","weight":118},{"source":"Rectorado","target":"Rodrigo Arim","weight":114},{"source":"Héctor Cancela","target":"Presupuesto","weight":104},{"source":"HC · Hospital de Clínicas","target":"Salud","weight":100},{"source":"HC · Hospital de Clínicas","target":"Álvaro Villar","weight":92},{"source":"FMED · Medicina","target":"Salud","weight":90},{"source":"FCIEN · Ciencias","target":"Investigación","weight":86},{"source":"Colonia","target":"Región Suroeste","weight":72},{"source":"Ambiente","target":"Investigación","weight":61},{"source":"Rendición de Cuentas","target":"Rodrigo Arim","weight":60},{"source":"Ambiente","target":"FCIEN · Ciencias","weight":59},{"source":"Parlamento","target":"Presupuesto","weight":55},{"source":"HC · Hospital de Clínicas","target":"Salud mental","weight":52},{"source":"Investigación","target":"Salud","weight":45},{"source":"Ciencia","target":"Investigación","weight":44},{"source":"Rectorado","target":"Rendición de Cuentas","weight":43},{"source":"Ciencia","target":"FCIEN · Ciencias","weight":42},{"source":"FHCE · Humanidades","target":"Israel","weight":42},{"source":"ADUR","target":"Rendición de Cuentas","weight":39},{"source":"ADUR","target":"Presupuesto","weight":38},{"source":"FEUU","target":"Presupuesto","weight":38},{"source":"Agua","target":"FCIEN · Ciencias","weight":37},{"source":"HC · Hospital de Clínicas","target":"Rendición de Cuentas","weight":37},{"source":"FQ · Química","target":"Investigación","weight":36},{"source":"Enseñanza","target":"PSICO · Psicología","weight":34},{"source":"CDC · Consejo Directivo Central","target":"Israel","weight":33},{"source":"CENUR Este · CURE","target":"Investigación","weight":32},{"source":"FING · Ingeniería","target":"Tecnologías","weight":31},{"source":"Ambiente","target":"CENUR Este · CURE","weight":29},{"source":"Agua","target":"Ambiente","weight":28},{"source":"CENUR Este · CURE","target":"Uruguay SUB200","weight":28},{"source":"CENUR Este · CURE","target":"FCIEN · Ciencias","weight":27},{"source":"CENUR Litoral Norte","target":"Obras","weight":27},{"source":"Enseñanza","target":"Tecnologías","weight":27},{"source":"FMED · Medicina","target":"Investigación","weight":26},{"source":"Convivencia","target":"HC · Hospital de Clínicas","weight":25},{"source":"ADUR","target":"FEUU","weight":24},{"source":"Colonia","target":"Obras","weight":24},{"source":"Israel","target":"MEC","weight":24},{"source":"Presupuesto","target":"Rodrigo Arim","weight":24},{"source":"HC · Hospital de Clínicas","target":"Presupuesto","weight":23},{"source":"Cogobierno","target":"Héctor Cancela","weight":23},{"source":"FCIEN · Ciencias","target":"Uruguay SUB200","weight":23},{"source":"FEUU","target":"Rendición de Cuentas","weight":22},{"source":"FMED · Medicina","target":"HC · Hospital de Clínicas","weight":22},{"source":"HC · Hospital de Clínicas","target":"Obras","weight":22},{"source":"Obras","target":"Región Suroeste","weight":22},{"source":"PSICO · Psicología","target":"Tecnologías","weight":22},{"source":"Salud","target":"Álvaro Villar","weight":21},{"source":"FCIEN · Ciencias","target":"Salud","weight":21},{"source":"Obras","target":"Rectorado","weight":21},{"source":"Cogobierno","target":"Rectorado","weight":21},{"source":"PSICO · Psicología","target":"Salud mental","weight":20},{"source":"FING · Ingeniería","target":"Investigación","weight":20},{"source":"Intendencia de Montevideo","target":"Obras","weight":20},{"source":"Agua","target":"FQ · Química","weight":18},{"source":"FCS · Facultad de Ciencias Sociales","target":"Investigación","weight":18},{"source":"Elecciones Universitarias","target":"FEUU","weight":18},{"source":"Ingresos","target":"Rectorado","weight":18},{"source":"Agua","target":"Investigación","weight":18},{"source":"HC · Hospital de Clínicas","target":"Trabajo","weight":18},{"source":"Salud mental","target":"Álvaro Villar","weight":17},{"source":"Obras","target":"Álvaro Villar","weight":17},{"source":"Presupuesto","target":"Trabajo","weight":17},{"source":"Convivencia","target":"Salud mental","weight":17},{"source":"Agua","target":"CENUR Este · CURE","weight":16},{"source":"FCIEN · Ciencias","target":"FQ · Química","weight":16},{"source":"FMED · Medicina","target":"Salud mental","weight":16},{"source":"FEUU","target":"Israel","weight":16},{"source":"Ciencia","target":"Presupuesto","weight":16},{"source":"FIC · Información y Comunicación","target":"Tecnologías","weight":15},{"source":"Ingresos","target":"PSICO · Psicología","weight":15},{"source":"PSICO · Psicología","target":"Presupuesto","weight":15},{"source":"FIC · Información y Comunicación","target":"FING · Ingeniería","weight":14},{"source":"Parlamento","target":"Rectorado","weight":14},{"source":"Israel","target":"Rectorado","weight":14},{"source":"Presupuesto","target":"Álvaro Villar","weight":14},{"source":"Amenaza","target":"Rectorado","weight":14},{"source":"Cultura","target":"Uruguay SUB200","weight":14},{"source":"Agua","target":"FMED · Medicina","weight":13},{"source":"Agua","target":"Intendencia de Montevideo","weight":13},{"source":"Rendición de Cuentas","target":"Salud mental","weight":13},{"source":"CENUR Litoral Norte","target":"Rectorado","weight":13},{"source":"ADUR","target":"Israel","weight":13},{"source":"Investigación","target":"Tecnologías","weight":13},{"source":"Convivencia","target":"PSICO · Psicología","weight":13},{"source":"Héctor Cancela","target":"Parlamento","weight":13},{"source":"FCEA · Ciencias Económicas y Administración","target":"Investigación","weight":12},{"source":"Salud","target":"Salud mental","weight":12},{"source":"FHCE · Humanidades","target":"Investigación","weight":12},{"source":"FHCE · Humanidades","target":"MEC","weight":12},{"source":"CENUR Litoral Norte · Salto","target":"Salud","weight":12},{"source":"CENUR Litoral Norte · Salto","target":"Ingresos","weight":12},{"source":"ADUR","target":"CDC · Consejo Directivo Central","weight":12},{"source":"Enseñanza","target":"Ingresos","weight":12},{"source":"Agua","target":"Rendición de Cuentas","weight":11},{"source":"Opinión","target":"Presupuesto","weight":11},{"source":"Convivencia","target":"FCS · Facultad de Ciencias Sociales","weight":11},{"source":"CENUR Litoral Norte","target":"Salud","weight":11},{"source":"Ambiente","target":"FQ · Química","weight":11},{"source":"Investigación","target":"Presupuesto","weight":11},{"source":"MEC","target":"Rectorado","weight":11},{"source":"FHCE · Humanidades","target":"Rectorado","weight":11},{"source":"Ciencia","target":"Opinión","weight":11},{"source":"Ciencia","target":"FMED · Medicina","weight":11},{"source":"Cogobierno","target":"Opinión","weight":11},{"source":"FMED · Medicina","target":"FQ · Química","weight":11},{"source":"Amenaza","target":"FMED · Medicina","weight":11},{"source":"ADUR","target":"PSICO · Psicología","weight":11},{"source":"FCS · Facultad de Ciencias Sociales","target":"FIC · Información y Comunicación","weight":10},{"source":"HC · Hospital de Clínicas","target":"Rodrigo Arim","weight":10},{"source":"FCEA · Ciencias Económicas y Administración","target":"Trabajo","weight":10},{"source":"CENUR Litoral Norte","target":"Investigación","weight":10},{"source":"Investigación","target":"PSICO · Psicología","weight":10},{"source":"Ambiente","target":"FING · Ingeniería","weight":10},{"source":"Convivencia","target":"FDER · Derecho","weight":10},{"source":"CENUR Litoral Norte","target":"Ingresos","weight":10},{"source":"CENUR Litoral Norte · Salto","target":"Obras","weight":10},{"source":"Rectorado","target":"Región Suroeste","weight":10},{"source":"Obras","target":"Presupuesto","weight":10},{"source":"FQ · Química","target":"Obras","weight":10},{"source":"FMED · Medicina","target":"Obras","weight":10},{"source":"Colonia","target":"Rectorado","weight":9},{"source":"Agua","target":"FING · Ingeniería","weight":9},{"source":"Rendición de Cuentas","target":"Álvaro Villar","weight":9},{"source":"FQ · Química","target":"Rectorado","weight":9},{"source":"Enseñanza","target":"FING · Ingeniería","weight":9},{"source":"CENUR Litoral Norte","target":"Rodrigo Arim","weight":9},{"source":"FCIEN · Ciencias","target":"FMED · Medicina","weight":9},{"source":"FCIEN · Ciencias","target":"FING · Ingeniería","weight":9},{"source":"HC · Hospital de Clínicas","target":"Rectorado","weight":9},{"source":"FHCE · Humanidades","target":"Rodrigo Arim","weight":9},{"source":"Israel","target":"Rodrigo Arim","weight":9},{"source":"Ambiente","target":"CENUR Litoral Norte","weight":9},{"source":"FMED · Medicina","target":"Presupuesto","weight":9},{"source":"Ciencia","target":"FING · Ingeniería","weight":9},{"source":"CENUR Litoral Norte","target":"Rendición de Cuentas","weight":8},{"source":"Intendencia de Montevideo","target":"Rodrigo Arim","weight":8},{"source":"PSICO · Psicología","target":"Salud","weight":8},{"source":"Enseñanza","target":"Rectorado","weight":8},{"source":"FQ · Química","target":"Salud","weight":8},{"source":"HC · Hospital de Clínicas","target":"Investigación","weight":8},{"source":"Ciencia","target":"FQ · Química","weight":8},{"source":"CDC · Consejo Directivo Central","target":"MEC","weight":8},{"source":"Cultura","target":"FIC · Información y Comunicación","weight":8},{"source":"FHCE · Humanidades","target":"Intendencia de Montevideo","weight":8},{"source":"FCIEN · Ciencias","target":"Tecnologías","weight":8},{"source":"FQ · Química","target":"Tecnologías","weight":8},{"source":"Investigación","target":"Opinión","weight":8},{"source":"Presupuesto","target":"Salud","weight":8},{"source":"Ingresos","target":"Región Suroeste","weight":8},{"source":"Obras","target":"Trabajo","weight":8},{"source":"Héctor Cancela","target":"Obras","weight":8},{"source":"MEC","target":"Uruguay SUB200","weight":8},{"source":"Presupuesto","target":"Región Suroeste","weight":8},{"source":"FCEA · Ciencias Económicas y Administración","target":"Tecnologías","weight":7},{"source":"FCEA · Ciencias Económicas y Administración","target":"FING · Ingeniería","weight":7},{"source":"FCIEN · Ciencias","target":"Rendición de Cuentas","weight":7},{"source":"Cultura","target":"FMED · Medicina","weight":7},{"source":"Ambiente","target":"Ciencia","weight":7},{"source":"FMED · Medicina","target":"Álvaro Villar","weight":7},{"source":"Convivencia","target":"Álvaro Villar","weight":7},{"source":"FCIEN · Ciencias","target":"Ingresos","weight":7},{"source":"Obras","target":"Rodrigo Arim","weight":7},{"source":"Intendencia de Montevideo","target":"Rectorado","weight":7},{"source":"Obras","target":"Salud","weight":7},{"source":"Colonia","target":"Rodrigo Arim","weight":7},{"source":"Enseñanza","target":"Presupuesto","weight":7},{"source":"CDC · Consejo Directivo Central","target":"Presupuesto","weight":7},{"source":"ADUR","target":"Rectorado","weight":7},{"source":"Amenaza","target":"Tecnologías","weight":7},{"source":"Cogobierno","target":"FEUU","weight":7},{"source":"Investigación","target":"Uruguay SUB200","weight":7},{"source":"Héctor Cancela","target":"Región Suroeste","weight":7},{"source":"Colonia","target":"Presupuesto","weight":7},{"source":"FDER · Derecho","target":"Intendencia de Montevideo","weight":6},{"source":"CENUR Litoral Norte · Salto","target":"Cultura","weight":6},{"source":"Agua","target":"Rodrigo Arim","weight":6},{"source":"Ciencia","target":"Tecnologías","weight":6},{"source":"Rectorado","target":"Salud","weight":6},{"source":"CENUR Litoral Norte · Salto","target":"Enseñanza","weight":6},{"source":"Opinión","target":"Rendición de Cuentas","weight":6},{"source":"Ciencia","target":"Rendición de Cuentas","weight":6},{"source":"FADU · Arquitectura, Diseño y Urbanismo","target":"FEUU","weight":6},{"source":"FCS · Facultad de Ciencias Sociales","target":"PSICO · Psicología","weight":6},{"source":"FEUU","target":"FHCE · Humanidades","weight":6},{"source":"FCEA · Ciencias Económicas y Administración","target":"Presupuesto","weight":6},{"source":"HC · Hospital de Clínicas","target":"PSICO · Psicología","weight":6},{"source":"Cultura","target":"FHCE · Humanidades","weight":6},{"source":"Ingresos","target":"Rodrigo Arim","weight":6},{"source":"Intendencia de Montevideo","target":"Investigación","weight":6},{"source":"Investigación","target":"Rectorado","weight":6},{"source":"FCS · Facultad de Ciencias Sociales","target":"Salud","weight":6},{"source":"Israel","target":"Opinión","weight":6},{"source":"FHCE · Humanidades","target":"FING · Ingeniería","weight":6},{"source":"Convivencia","target":"FCIEN · Ciencias","weight":6},{"source":"Salud","target":"Trabajo","weight":6},{"source":"FIC · Información y Comunicación","target":"Israel","weight":6},{"source":"Región Suroeste","target":"Rodrigo Arim","weight":6},{"source":"FADU · Arquitectura, Diseño y Urbanismo","target":"Intendencia de Montevideo","weight":6},{"source":"CDC · Consejo Directivo Central","target":"Cogobierno","weight":6},{"source":"ADUR","target":"Cogobierno","weight":6},{"source":"ADUR","target":"Ingresos","weight":6},{"source":"FHCE · Humanidades","target":"Obras","weight":6},{"source":"Ambiente","target":"Uruguay SUB200","weight":6},{"source":"Rectorado","target":"Tecnologías","weight":6},{"source":"Colonia","target":"Héctor Cancela","weight":6},{"source":"Ciencia","target":"Uruguay SUB200","weight":6},{"source":"Obras","target":"Salud mental","weight":6},{"source":"FCS · Facultad de Ciencias Sociales","target":"FING · Ingeniería","weight":5},{"source":"CENUR Litoral Norte","target":"Ciencia","weight":5},{"source":"FMED · Medicina","target":"Intendencia de Montevideo","weight":5},{"source":"ADUR","target":"Opinión","weight":5},{"source":"Convivencia","target":"Opinión","weight":5},{"source":"FING · Ingeniería","target":"FQ · Química","weight":5},{"source":"CENUR Este · CURE","target":"FING · Ingeniería","weight":5},{"source":"CDC · Consejo Directivo Central","target":"Rectorado","weight":5},{"source":"Colonia","target":"FHCE · Humanidades","weight":5},{"source":"FEUU","target":"FIC · Información y Comunicación","weight":5},{"source":"Opinión","target":"Rectorado","weight":5},{"source":"CDC · Consejo Directivo Central","target":"Opinión","weight":5},{"source":"FIC · Información y Comunicación","target":"Investigación","weight":5},{"source":"Elecciones Universitarias","target":"FDER · Derecho","weight":5},{"source":"Cultura","target":"FADU · Arquitectura, Diseño y Urbanismo","weight":5},{"source":"FMED · Medicina","target":"Opinión","weight":5},{"source":"MEC","target":"Rodrigo Arim","weight":5},{"source":"FIC · Información y Comunicación","target":"MEC","weight":5},{"source":"FING · Ingeniería","target":"FMED · Medicina","weight":5},{"source":"CENUR Este · CURE","target":"Ingresos","weight":5},{"source":"Opinión","target":"Rodrigo Arim","weight":5},{"source":"Ciencia","target":"Salud","weight":5},{"source":"Cultura","target":"Intendencia de Montevideo","weight":5},{"source":"FCS · Facultad de Ciencias Sociales","target":"Salud mental","weight":5},{"source":"FCS · Facultad de Ciencias Sociales","target":"HC · Hospital de Clínicas","weight":5},{"source":"FHCE · Humanidades","target":"FIC · Información y Comunicación","weight":5},{"source":"Ambiente","target":"FDER · Derecho","weight":5},{"source":"FCIEN · Ciencias","target":"MEC","weight":5},{"source":"FCEA · Ciencias Económicas y Administración","target":"Región Suroeste","weight":5},{"source":"Ambiente","target":"Salud","weight":5},{"source":"Rectorado","target":"Trabajo","weight":5},{"source":"Salud","target":"Tecnologías","weight":5},{"source":"Colonia","target":"Salud","weight":5},{"source":"Enseñanza","target":"FMED · Medicina","weight":5},{"source":"Agua","target":"Uruguay SUB200","weight":5},{"source":"CENUR Litoral Norte","target":"FQ · Química","weight":5},{"source":"Enseñanza","target":"FIC · Información y Comunicación","weight":5},{"source":"FMED · Medicina","target":"Rectorado","weight":5},{"source":"FIC · Información y Comunicación","target":"Presupuesto","weight":5},{"source":"CENUR Litoral Norte","target":"Héctor Cancela","weight":5},{"source":"Región Suroeste","target":"Salud","weight":5},{"source":"FDER · Derecho","target":"Obras","weight":5},{"source":"CDC · Consejo Directivo Central","target":"Rendición de Cuentas","weight":4},{"source":"Colonia","target":"Rendición de Cuentas","weight":4},{"source":"Investigación","target":"Salud mental","weight":4},{"source":"CENUR Litoral Norte","target":"Cultura","weight":4},{"source":"Presupuesto","target":"Rendición de Cuentas","weight":4},{"source":"FDER · Derecho","target":"Trabajo","weight":4},{"source":"Parlamento","target":"Rodrigo Arim","weight":4},{"source":"FCEA · Ciencias Económicas y Administración","target":"FMED · Medicina","weight":4},{"source":"FING · Ingeniería","target":"Trabajo","weight":4},{"source":"CENUR Este · CURE","target":"FQ · Química","weight":4},{"source":"MEC","target":"Opinión","weight":4},{"source":"FEUU","target":"HC · Hospital de Clínicas","weight":4},{"source":"ADUR","target":"HC · Hospital de Clínicas","weight":4},{"source":"CDC · Consejo Directivo Central","target":"Rodrigo Arim","weight":4},{"source":"FADU · Arquitectura, Diseño y Urbanismo","target":"Rendición de Cuentas","weight":4},{"source":"FIC · Información y Comunicación","target":"PSICO · Psicología","weight":4},{"source":"CENUR Litoral Norte · Salto","target":"FING · Ingeniería","weight":4},{"source":"CENUR Litoral Norte · Salto","target":"Investigación","weight":4},{"source":"Consultorio Jurídico","target":"Intendencia de Montevideo","weight":4},{"source":"FDER · Derecho","target":"Opinión","weight":4},{"source":"Cultura","target":"Investigación","weight":4},{"source":"Elecciones Universitarias","target":"Rectorado","weight":4},{"source":"CENUR Litoral Norte · Salto","target":"Elecciones Universitarias","weight":4},{"source":"Ambiente","target":"HC · Hospital de Clínicas","weight":4},{"source":"CDC · Consejo Directivo Central","target":"Parlamento","weight":4},{"source":"FCS · Facultad de Ciencias Sociales","target":"FHCE · Humanidades","weight":4},{"source":"Ingresos","target":"Tecnologías","weight":4},{"source":"Convivencia","target":"FADU · Arquitectura, Diseño y Urbanismo","weight":4},{"source":"Agua","target":"Ciencia","weight":4},{"source":"FHCE · Humanidades","target":"Presupuesto","weight":4},{"source":"FCS · Facultad de Ciencias Sociales","target":"Presupuesto","weight":4},{"source":"CENUR Litoral Norte · Salto","target":"Rectorado","weight":4},{"source":"CENUR Este · CURE","target":"Ciencia","weight":4},{"source":"Cultura","target":"Ingresos","weight":4},{"source":"FCS · Facultad de Ciencias Sociales","target":"Israel","weight":4},{"source":"FMED · Medicina","target":"PSICO · Psicología","weight":4},{"source":"FDER · Derecho","target":"Salud","weight":4},{"source":"Colonia","target":"FADU · Arquitectura, Diseño y Urbanismo","weight":4},{"source":"CENUR Este · CURE","target":"CENUR Litoral Norte","weight":4},{"source":"Cultura","target":"FILUNI","weight":4},{"source":"Enseñanza","target":"Región Suroeste","weight":4},{"source":"Colonia","target":"Ingresos","weight":4},{"source":"FEUU","target":"Rectorado","weight":4},{"source":"Amenaza","target":"FDER · Derecho","weight":4},{"source":"Ingresos","target":"Presupuesto","weight":4},{"source":"ADUR","target":"Parlamento","weight":4},{"source":"Presupuesto","target":"Tecnologías","weight":4},{"source":"Enseñanza","target":"Salud","weight":4},{"source":"FMED · Medicina","target":"Héctor Cancela","weight":4},{"source":"Héctor Cancela","target":"Uruguay SUB200","weight":4},{"source":"ADUR","target":"Héctor Cancela","weight":4},{"source":"Presupuesto","target":"Uruguay SUB200","weight":4},{"source":"CENUR Litoral Norte","target":"Presupuesto","weight":4},{"source":"Enseñanza","target":"Héctor Cancela","weight":4},{"source":"CENUR Este · CURE","target":"Héctor Cancela","weight":4},{"source":"CENUR Este · CURE","target":"Rectorado","weight":4},{"source":"FADU · Arquitectura, Diseño y Urbanismo","target":"Presupuesto","weight":4},{"source":"Cogobierno","target":"Elecciones Universitarias","weight":4},{"source":"Héctor Cancela","target":"Trabajo","weight":4}];
+
+// ─── SETUP ────────────────────────────────────────────────────────────────
+const svg   = d3.select("#svg");
+const gc    = document.getElementById("gc");
+let W = gc.clientWidth, H = gc.clientHeight;
+
+const g = svg.append("g");
+const zoom = d3.zoom().scaleExtent([0.15, 5])
+  .on("zoom", e => g.attr("transform", e.transform));
+svg.call(zoom);
+
+function resetZoom() {
+  svg.transition().duration(700).call(zoom.transform,
+    d3.zoomIdentity.translate(W/2, H/2).scale(0.78));
+}
+
+// ─── SCALES ───────────────────────────────────────────────────────────────
+const cExt = d3.extent(rawNodes, d => d.count);
+const rScale = d3.scaleSqrt().domain(cExt).range([7, 28]);
+const wScale = d3.scaleLinear().domain([4, 158]).range([0.8, 9]);
+const opScale = d3.scaleLinear().domain([4, 158]).range([0.15, 0.75]);
+
+const COL_TAG = "#818cf8";
+const COL_SVC = "#14b8a6";
+const COL_POS = "#4ade80";
+const COL_NEU = "#94a3b8";
+const COL_NEG = "#f87171";
+
+// tone dominant color
+function toneColor(d) {
+  const total = d.pos + d.neu + d.neg;
+  if (!total) return COL_NEU;
+  const pctPos = d.pos / total, pctNeg = d.neg / total;
+  if (pctNeg > 0.4) return COL_NEG;
+  if (pctPos > 0.7) return COL_POS;
+  if (pctNeg > 0.25) return d3.interpolateRgb(COL_NEU, COL_NEG)(pctNeg * 2);
+  return d3.interpolateRgb(COL_NEU, COL_POS)(pctPos);
+}
+
+function nodeColor(d) { return d.type === "tag" ? COL_TAG : COL_SVC; }
+
+// ─── ADJACENCY ────────────────────────────────────────────────────────────
+const adj = {};
+rawNodes.forEach(n => adj[n.id] = []);
+rawEdges.forEach(e => {
+  adj[e.source] = adj[e.source] || [];
+  adj[e.target] = adj[e.target] || [];
+  adj[e.source].push({ id: e.target, w: e.weight });
+  adj[e.target].push({ id: e.source, w: e.weight });
+});
+
+// ─── SIMULATION ───────────────────────────────────────────────────────────
+const nodes = rawNodes.map(d => ({ ...d }));
+const links = rawEdges.map(d => ({ ...d }));
+
+const sim = d3.forceSimulation(nodes)
+  .force("link", d3.forceLink(links).id(d => d.id)
+    .distance(d => 50 + 180 / Math.sqrt(d.weight))
+    .strength(d => 0.35 + d.weight / 500))
+  .force("charge", d3.forceManyBody().strength(d => -220 - d.count * 0.3))
+  .force("center", d3.forceCenter(0, 0))
+  .force("collision", d3.forceCollide().radius(d => rScale(d.count) + 16))
+  .alphaDecay(0.022);
+
+let frozen = false;
+function toggleFreeze() {
+  frozen = !frozen;
+  document.getElementById("fbtn").textContent = frozen ? "▶ Reanudar" : "❄ Congelar";
+  frozen ? sim.stop() : sim.alpha(0.3).restart();
+}
+
+// ─── LINKS ────────────────────────────────────────────────────────────────
+const linkSel = g.append("g").attr("class","links")
+  .selectAll("line").data(links).join("line")
+  .attr("class","link")
+  .attr("stroke", d => {
+    const sn = rawNodes.find(n => n.id === d.source || n.id === d.source?.id);
+    return sn ? nodeColor(sn) : "#fff";
+  })
+  .attr("stroke-opacity", d => opScale(d.weight))
+  .attr("stroke-width",   d => wScale(d.weight));
+
+// ─── NODES ────────────────────────────────────────────────────────────────
+const nodeSel = g.append("g").attr("class","nodes")
+  .selectAll("g.ng").data(nodes).join("g").attr("class","ng")
+  .call(d3.drag()
+    .on("start", (e,d) => { if(!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+    .on("drag",  (e,d) => { d.fx=e.x; d.fy=e.y; })
+    .on("end",   (e,d) => { if(!e.active) sim.alphaTarget(0); if(!frozen){d.fx=null;d.fy=null;} }))
+  .on("mouseenter", showTT)
+  .on("mousemove",  moveTT)
+  .on("mouseleave", hideTT)
+  .on("click",      onNodeClick);
+
+// Outer glow
+nodeSel.append("circle").attr("class","node-glow")
+  .attr("r", d => rScale(d.count) + 6)
+  .attr("fill", d => nodeColor(d))
+  .attr("opacity", 0.07);
+
+// Tone ring (arc-based donut)
+// We'll draw three arcs for pos/neu/neg proportions
+nodeSel.each(function(d) {
+  const r = rScale(d.count);
+  const ringR = r + 4;
+  const total = d.pos + d.neu + d.neg || 1;
+  const segments = [
+    { pct: d.pos / total, color: COL_POS },
+    { pct: d.neu / total, color: COL_NEU, opacity: 0.55 },
+    { pct: d.neg / total, color: COL_NEG },
+  ];
+  let startAngle = -Math.PI / 2;
+  segments.forEach(seg => {
+    if (seg.pct < 0.01) return;
+    const endAngle = startAngle + seg.pct * 2 * Math.PI;
+    const arc = d3.arc().innerRadius(ringR - 2.5).outerRadius(ringR).startAngle(startAngle).endAngle(endAngle);
+    d3.select(this).append("path")
+      .attr("d", arc)
+      .attr("fill", seg.color)
+      .attr("opacity", seg.opacity || 0.85)
+      .attr("class", "tone-arc");
+    startAngle = endAngle;
+  });
+});
+
+// Main circle — shape differs by type
+nodeSel.each(function(d) {
+  const r = rScale(d.count);
+  const col = nodeColor(d);
+  if (d.type === "tag") {
+    d3.select(this).append("circle").attr("class","node-body")
+      .attr("r", r)
+      .attr("fill", col).attr("fill-opacity", 0.16)
+      .attr("stroke", col).attr("stroke-width", 1.5).attr("stroke-opacity", 0.75);
+  } else {
+    // Rounded rect for services
+    const s = r * 1.55;
+    d3.select(this).append("rect").attr("class","node-body")
+      .attr("x", -s/2).attr("y", -s/2)
+      .attr("width", s).attr("height", s).attr("rx", s * 0.22)
+      .attr("fill", col).attr("fill-opacity", 0.14)
+      .attr("stroke", col).attr("stroke-width", 1.5).attr("stroke-opacity", 0.75);
+  }
+});
+
+// Label
+nodeSel.append("text").attr("class","node-label")
+  .attr("text-anchor","middle")
+  .attr("dy", d => {
+    const r = rScale(d.count);
+    return d.type === "tag" ? r + 13 : r * 1.55 / 2 + 13;
+  })
+  .attr("fill", d => nodeColor(d))
+  .attr("fill-opacity", 0.92)
+  .style("font-size", d => rScale(d.count) >= 18 ? "11px" : "10px")
+  .style("font-weight","600")
+  .text(d => {
+    // Shorten long service names
+    const id = d.id;
+    if (id.includes(" · ")) return id.split(" · ")[0];
+    if (id.length > 18) return id.slice(0,16) + "…";
+    return id;
+  });
+
+// ─── TICK ─────────────────────────────────────────────────────────────────
+sim.on("tick", () => {
+  linkSel
+    .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+    .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+  nodeSel.attr("transform", d => `translate(${d.x},${d.y})`);
+});
+
+setTimeout(() => resetZoom(), 600);
+
+// ─── HIGHLIGHT ────────────────────────────────────────────────────────────
+let selected = null;
+
+function getConn(id) {
+  const s = new Set([id]);
+  links.forEach(l => {
+    const a = l.source.id||l.source, b = l.target.id||l.target;
+    if (a===id) s.add(b); if (b===id) s.add(a);
+  });
+  return s;
+}
+
+function applyHL(activeId) {
+  if (!activeId) {
+    nodeSel.select(".node-body").attr("fill-opacity", d => d.type==="tag"?0.16:0.14).attr("stroke-opacity",0.75);
+    nodeSel.selectAll(".tone-arc").attr("opacity", s => s.opacity||0.85);
+    nodeSel.select("text").attr("fill-opacity",0.92);
+    linkSel.attr("stroke-opacity", d=>opScale(d.weight)).attr("stroke-width",d=>wScale(d.weight));
+    return;
+  }
+  const conn = getConn(activeId);
+  nodeSel.select(".node-body")
+    .attr("fill-opacity", d => conn.has(d.id) ? 0.30 : 0.04)
+    .attr("stroke-opacity", d => conn.has(d.id) ? 0.9 : 0.12);
+  nodeSel.selectAll(".tone-arc").attr("opacity", function(){ return 0.85; }); // keep arcs
+  nodeSel.select("text").attr("fill-opacity", d => conn.has(d.id) ? 1 : 0.08);
+  nodeSel.select(".node-glow").attr("opacity", d => conn.has(d.id) ? 0.12 : 0.02);
+  linkSel
+    .attr("stroke-opacity", l => {
+      const a=l.source.id||l.source, b=l.target.id||l.target;
+      return (a===activeId||b===activeId) ? Math.min(opScale(l.weight)*1.6,1) : 0.03;
+    })
+    .attr("stroke-width", l => {
+      const a=l.source.id||l.source, b=l.target.id||l.target;
+      return (a===activeId||b===activeId) ? wScale(l.weight)+1.5 : wScale(l.weight)*0.4;
+    });
+}
+
+function onNodeClick(e, d) {
+  e.stopPropagation();
+  selected = selected===d.id ? null : d.id;
+  applyHL(selected);
+}
+svg.on("click", () => { selected=null; applyHL(null); });
+
+// ─── SEARCH ───────────────────────────────────────────────────────────────
+function onSearch(v) {
+  if (!v.trim()) { selected=null; applyHL(null); return; }
+  const m = nodes.find(n => n.id.toLowerCase().includes(v.toLowerCase()));
+  if (m) applyHL(m.id);
+}
+
+// ─── TYPE FILTER ──────────────────────────────────────────────────────────
+document.querySelectorAll("#lg-type .leg-item").forEach(item => {
+  item.addEventListener("click", () => {
+    const f = item.dataset.filter;
+    item.classList.toggle("off");
+    const show = !item.classList.contains("off");
+    nodeSel.filter(d => d.type===f)
+      .style("opacity", show ? 1 : 0.1)
+      .style("pointer-events", show ? "all" : "none");
+  });
+});
+
+// ─── TOOLTIP ──────────────────────────────────────────────────────────────
+const ttEl = document.getElementById("tt");
+
+function showTT(e, d) {
+  const total = d.pos+d.neu+d.neg||1;
+  const pp = (d.pos/total*100).toFixed(0), pn = (d.neu/total*100).toFixed(0), pg = (d.neg/total*100).toFixed(0);
+  document.getElementById("tt-title").textContent = d.id;
+  document.getElementById("tt-type").innerHTML =
+    `Tipo: <b>${d.type==="tag"?"Etiqueta":"Servicio UDELAR"}</b>`;
+  document.getElementById("tt-count").innerHTML =
+    `<b>${d.count.toLocaleString()}</b> menciones totales`;
+  document.getElementById("tt-bar").innerHTML =
+    `<div class="tb-pos" style="width:${pp}%"></div><div class="tb-neu" style="width:${pn}%;opacity:.5"></div><div class="tb-neg" style="width:${pg}%"></div>`;
+  document.getElementById("tp-pos").textContent = `✦ ${pp}% pos`;
+  document.getElementById("tp-neu").textContent = `${pn}% neu`;
+  document.getElementById("tp-neg").textContent = `${pg}% neg ✦`;
+  const nb = (adj[d.id]||[]).sort((a,b)=>b.w-a.w);
+  document.getElementById("tt-nb").innerHTML =
+    `<span style="display:block;margin-bottom:4px;color:var(--muted)">Conectado con <b style="color:var(--text)">${nb.length}</b> nodos:</span>` +
+    nb.slice(0,7).map(n=>`<span class="nb-chip">${n.id.split(" · ")[0].slice(0,14)} <span style="opacity:.45">${n.w}</span></span>`).join("") +
+    (nb.length>7?`<span class="nb-chip">+${nb.length-7}</span>`:"");
+  ttEl.classList.add("on");
+  moveTT(e);
+}
+
+function moveTT(e) {
+  const x=e.clientX+16, y=e.clientY-90;
+  ttEl.style.left=Math.min(x,window.innerWidth-280)+"px";
+  ttEl.style.top=Math.max(y,50)+"px";
+}
+
+function hideTT() { ttEl.classList.remove("on"); }
+
+window.addEventListener("resize",()=>{W=gc.clientWidth;H=gc.clientHeight;});
+</script>
+</body>
+</html>
