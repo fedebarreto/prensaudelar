@@ -71,10 +71,10 @@
   #search {
     background: var(--surface2); border: 1px solid var(--border);
     color: var(--text); font-family: 'DM Mono', monospace; font-size: 11px;
-    padding: 5px 10px 5px 26px; border-radius: 5px; outline: none; width: 150px;
-    transition: border-color 0.2s;
+    padding: 6px 11px 6px 26px; border-radius: 6px; outline: none; width: 180px;
+    transition: border-color 0.2s, box-shadow 0.2s;
   }
-  #search:focus { border-color: #818cf8; }
+  #search:focus { border-color: #818cf8; box-shadow: 0 0 0 3px rgba(129,140,248,0.18); }
   #search::placeholder { color: var(--muted); }
   .si { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 12px; pointer-events: none; }
 
@@ -160,6 +160,83 @@
   }
   .cbtn:hover { border-color: #818cf8; color: #818cf8; }
 
+  .insights {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: 20;
+    width: min(320px, calc(100vw - 40px));
+    background: rgba(10, 10, 18, 0.92);
+    border: 1px solid rgba(129, 140, 248, 0.25);
+    border-radius: 10px;
+    padding: 11px 12px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  }
+
+  .ins-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-family: 'DM Mono', monospace;
+    font-size: 10px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: #a5b4fc;
+    margin-bottom: 7px;
+  }
+
+  .ins-kpis {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin-bottom: 9px;
+  }
+
+  .ins-kpi {
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,0.03);
+    border-radius: 7px;
+    padding: 6px;
+  }
+
+  .ins-kpi b {
+    display: block;
+    font-family: 'DM Serif Display', serif;
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .ins-kpi span {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 9px;
+    font-family: 'DM Mono', monospace;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+
+  .ins-selected {
+    border-top: 1px solid var(--border);
+    padding-top: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  .ins-selected b { color: var(--text); }
+  .ins-selected .hotkey { color: #818cf8; font-family: 'DM Mono', monospace; }
+
+  @media (max-width: 820px) {
+    .topbar-right { gap: 8px; }
+    .hint { display: none; }
+    .insights { width: calc(100vw - 28px); top: 10px; left: 10px; }
+    .ins-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
   /* ── STATS BAR ── */
   .sbar {
     position: relative; z-index: 10; display: flex;
@@ -214,6 +291,20 @@
 
 <div id="gc">
   <svg id="svg"></svg>
+  <aside class="insights" id="insights">
+    <div class="ins-title">
+      <span>Resumen en vivo</span>
+      <span id="ins-mode">Vista general</span>
+    </div>
+    <div class="ins-kpis">
+      <div class="ins-kpi"><b id="kpi-nodes">50</b><span>Nodos</span></div>
+      <div class="ins-kpi"><b id="kpi-links">313</b><span>Vínculos</span></div>
+      <div class="ins-kpi"><b id="kpi-avg">89</b><span>Media menciones</span></div>
+    </div>
+    <div class="ins-selected" id="ins-selected">
+      Seleccioná un nodo para ver sus métricas clave. <span class="hotkey">ESC</span> limpia la selección.
+    </div>
+  </aside>
   <div id="tt">
     <div id="tt-title"></div>
     <div class="tt-row" id="tt-type"></div>
@@ -464,14 +555,19 @@ function onNodeClick(e, d) {
   e.stopPropagation();
   selected = selected===d.id ? null : d.id;
   applyHL(selected);
+  updateInsights(selected ? d : null);
 }
-svg.on("click", () => { selected=null; applyHL(null); });
+svg.on("click", () => { selected=null; applyHL(null); updateInsights(null); });
 
 // ─── SEARCH ───────────────────────────────────────────────────────────────
 function onSearch(v) {
-  if (!v.trim()) { selected=null; applyHL(null); return; }
+  if (!v.trim()) { selected=null; applyHL(null); updateInsights(null); return; }
   const m = nodes.find(n => n.id.toLowerCase().includes(v.toLowerCase()));
-  if (m) applyHL(m.id);
+  if (m) {
+    selected = m.id;
+    applyHL(m.id);
+    updateInsights(m);
+  }
 }
 
 // ─── TYPE FILTER ──────────────────────────────────────────────────────────
@@ -486,6 +582,37 @@ document.querySelectorAll("#lg-type .leg-item").forEach(item => {
   });
 });
 
+
+// ─── INSIGHTS PANEL ───────────────────────────────────────────────────────
+const avgMentions = Math.round(rawNodes.reduce((acc, n) => acc + n.count, 0) / rawNodes.length);
+const insMode = document.getElementById("ins-mode");
+const insSel = document.getElementById("ins-selected");
+document.getElementById("kpi-nodes").textContent = rawNodes.length;
+document.getElementById("kpi-links").textContent = rawEdges.length;
+document.getElementById("kpi-avg").textContent = avgMentions;
+
+function updateInsights(node) {
+  if (!node) {
+    insMode.textContent = "Vista general";
+    insSel.innerHTML = 'Seleccioná un nodo para ver sus métricas clave. <span class="hotkey">ESC</span> limpia la selección.';
+    return;
+  }
+  const total = node.pos + node.neu + node.neg || 1;
+  const strongest = (adj[node.id] || []).slice().sort((a,b) => b.w - a.w)[0];
+  const domTone = node.neg / total > 0.35 ? "Negativo" : (node.pos / total > 0.6 ? "Positivo" : "Mixto");
+  insMode.textContent = node.type === "tag" ? "Etiqueta" : "Servicio";
+  insSel.innerHTML = `<b>${node.id}</b><br>${node.count.toLocaleString()} menciones · tono <b>${domTone}</b>` +
+    (strongest ? `<br>Conexión más fuerte: <b>${strongest.id.split(" · ")[0]}</b> (${strongest.w})` : "");
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") {
+    selected = null;
+    applyHL(null);
+    updateInsights(null);
+    hideTT();
+  }
+});
 // ─── TOOLTIP ──────────────────────────────────────────────────────────────
 const ttEl = document.getElementById("tt");
 
